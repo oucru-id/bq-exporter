@@ -1,0 +1,7 @@
+.git
+.env
+.vscode
+bin
+dist
+Dockerfile
+README.md

@@ -1,0 +1,15 @@
+services:
+  bq-exporter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - PORT=8080
+      - GIN_MODE=release
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/creds/sa.json
+      - API_KEY=apikey
+    volumes:
+      - ./sa.json:/app/creds/sa.json:ro
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
