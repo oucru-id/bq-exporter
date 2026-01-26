@@ -30,12 +30,12 @@ func (s *BigQueryService) Close() error {
 	return s.client.Close()
 }
 
-func (s *BigQueryService) ExportQueryToParquet(ctx context.Context, sqlQuery, outputURI, filename, location string) (string, error) {
+func (s *BigQueryService) ExportQueryToParquet(ctx context.Context, sqlQuery, outputURI, filename, location string, useTimestamp bool) (string, error) {
 	// Generate timestamp for filename
 	timestamp := time.Now().Format("20060102-150405")
-	
+
 	exportURI := outputURI
-	
+
 	// Determine the base filename prefix
 	baseName := filename
 	if baseName == "" {
@@ -43,16 +43,24 @@ func (s *BigQueryService) ExportQueryToParquet(ctx context.Context, sqlQuery, ou
 	}
 
 	// Logic for generating the final URI:
-	// 1. If it ends with "/", it's a folder. Append "{baseName}-{timestamp}-*.parquet"
+	// 1. If it ends with "/", it's a folder. Append "{baseName}-{timestamp?-}*.parquet"
 	// 2. If it doesn't have an extension (.parquet) and no wildcard (*):
-	//    - Assume it's a folder path missing the slash. Append "/{baseName}-{timestamp}-*.parquet"
+	//    - Assume it's a folder path missing the slash. Append "/{baseName}-{timestamp?-}*.parquet"
 	// 3. If user provided a specific pattern (e.g. ".../my-file-*.parquet"), use it as is (ignoring filename/timestamp injection to respect strict overrides)
 
 	if strings.HasSuffix(outputURI, "/") {
-		exportURI = fmt.Sprintf("%s%s-%s-*.parquet", outputURI, baseName, timestamp)
+		if useTimestamp {
+			exportURI = fmt.Sprintf("%s%s-%s-*.parquet", outputURI, baseName, timestamp)
+		} else {
+			exportURI = fmt.Sprintf("%s%s-*.parquet", outputURI, baseName)
+		}
 	} else if !strings.HasSuffix(outputURI, ".parquet") && !strings.Contains(outputURI, "*") {
 		// Treat as folder, append slash and filename pattern
-		exportURI = fmt.Sprintf("%s/%s-%s-*.parquet", outputURI, baseName, timestamp)
+		if useTimestamp {
+			exportURI = fmt.Sprintf("%s/%s-%s-*.parquet", outputURI, baseName, timestamp)
+		} else {
+			exportURI = fmt.Sprintf("%s/%s-*.parquet", outputURI, baseName)
+		}
 	}
 
 	// NOTE: If outputURI contained a pattern (case 3), we use it exactly as provided.
@@ -64,6 +72,7 @@ func (s *BigQueryService) ExportQueryToParquet(ctx context.Context, sqlQuery, ou
 		"filename", filename,
 		"export_uri", exportURI,
 		"timestamp", timestamp,
+		"use_timestamp", useTimestamp,
 	)
 
 	// Construct the EXPORT DATA statement
