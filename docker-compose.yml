@@ -40,6 +40,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    volumes:
+      - starrocks-minio-data:/minio_data
 
   minio_mc:
     image: minio/mc:latest
@@ -165,10 +167,12 @@ services:
       STARROCKS_URI: "starrocks://root:@starrocks-fe:9030/default_catalog.analytics"
       STARROCKS_DB_NAME: "StarRocks-analytics"
     volumes:
-      - /Users/administrator/Documents/Office/superset/data:/data:ro
+      - superset-data:/data:ro
     restart: unless-stopped
     command: /app/start_superset.sh
 
 volumes:
   starrocks-fe-meta:
   superset-pgdata:
+  starrocks-minio-data:
+  superset-data:
