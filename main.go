@@ -54,6 +54,20 @@ func main() {
 	}
 	defer bqService.Close()
 
+	// Initialize driver
+	var driver service.ExportDriver
+	if os.Getenv("EXPORT_DRIVER") == "STARROCKS" {
+		srService, err := service.NewStarRocksServiceFromEnv()
+		if err != nil {
+			slog.Error("Failed to initialize StarRocks service", "error", err)
+			os.Exit(1)
+		}
+		defer srService.Close()
+		driver = service.NewStarRocksDriver(srService)
+	} else {
+		driver = service.NewGCSDriver()
+	}
+
 	// Initialize Gin
 	// Release mode is better for production performance
 	if os.Getenv("GIN_MODE") == "" {
@@ -126,7 +140,7 @@ func main() {
 	})
 
 	// Routes
-	r.POST("/api/export", api.ExportHandler(bqService))
+	r.POST("/api/export", api.ExportHandler(bqService, driver))
 
 	// Server setup with Graceful Shutdown
 	port := os.Getenv("PORT")
