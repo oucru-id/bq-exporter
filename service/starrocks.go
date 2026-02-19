@@ -37,9 +37,9 @@ func NewStarRocksServiceFromEnv() (*StarRocksService, error) {
 
 	var dsn string
 	if dbname != "" {
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local", user, pass, host, port, dbname)
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local&interpolateParams=true", user, pass, host, port, dbname)
 	} else {
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/?charset=utf8mb4&parseTime=true&loc=Local", user, pass, host, port)
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/?charset=utf8mb4&parseTime=true&loc=Local&interpolateParams=true", user, pass, host, port)
 	}
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
@@ -51,6 +51,14 @@ func NewStarRocksServiceFromEnv() (*StarRocksService, error) {
 
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to connect to StarRocks: %w", err)
+	}
+
+	wh := os.Getenv("STARROCKS_WAREHOUSE")
+	if strings.TrimSpace(wh) == "" {
+		wh = "default_warehouse"
+	}
+	if _, err := db.Exec(fmt.Sprintf("SET warehouse = '%s'", wh)); err != nil {
+		return nil, fmt.Errorf("failed to set session warehouse %q: %w", wh, err)
 	}
 
 	return &StarRocksService{
@@ -81,13 +89,29 @@ func (s *StarRocksService) LoadFromBigQuery(ctx context.Context, bq *BigQuerySer
 		return 0, fmt.Errorf("failed to execute query on BigQuery: %w", err)
 	}
 
+	// Ensure schema is populated. RowIterator.Schema may be empty until the first page is fetched.
+	var prefetch []bigquery.Value
+	var havePrefetch bool
+	if len(it.Schema) == 0 {
+		var vals []bigquery.Value
+		if e := it.Next(&vals); e == nil {
+			prefetch = vals
+			havePrefetch = true
+		} else if e != iterator.Done {
+			return 0, fmt.Errorf("failed to fetch BigQuery rows: %w", e)
+		}
+	}
+	if len(it.Schema) == 0 {
+		return 0, fmt.Errorf("empty BigQuery schema")
+	}
+
 	// Ensure table exists (create or evolve)
 	if err := s.ensureTable(ctx, it.Schema, table, createDDL); err != nil {
 		return 0, fmt.Errorf("failed to ensure StarRocks table: %w", err)
 	}
 
 	// Insert rows
-	rowsInserted, err := s.insertRows(ctx, it, it.Schema, table)
+	rowsInserted, err := s.insertRows(ctx, it, it.Schema, table, prefetch, havePrefetch)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert rows into StarRocks: %w", err)
 	}
@@ -246,7 +270,7 @@ func (s *StarRocksService) qualify(db, tbl string) string {
 	return fmt.Sprintf("%s.%s", db, tbl)
 }
 
-func (s *StarRocksService) insertRows(ctx context.Context, it *bigquery.RowIterator, schema bigquery.Schema, table string) (int64, error) {
+func (s *StarRocksService) insertRows(ctx context.Context, it *bigquery.RowIterator, schema bigquery.Schema, table string, prefetch []bigquery.Value, havePrefetch bool) (int64, error) {
 	cols := make([]string, 0, len(schema))
 	for _, f := range schema {
 		cols = append(cols, fmt.Sprintf("`%s`", f.Name))
@@ -270,6 +294,9 @@ func (s *StarRocksService) insertRows(ctx context.Context, it *bigquery.RowItera
 
 	var total int64
 	var batch [][]bigquery.Value
+	if havePrefetch && len(prefetch) > 0 {
+		batch = append(batch, prefetch)
+	}
 	for {
 		var values []bigquery.Value
 		err := it.Next(&values)
