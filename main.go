@@ -4,6 +4,8 @@ import (
 	"bq-exporter/api"
 	"bq-exporter/service"
 	"context"
+	"encoding/json"
+	"strings"
 	"log/slog"
 	"net/http"
 	"os"
@@ -66,6 +68,47 @@ func main() {
 		driver = service.NewStarRocksDriver(srService)
 	} else {
 		driver = service.NewGCSDriver()
+	}
+
+	// Job mode: execute once and exit (for Cloud Run Jobs)
+	if os.Getenv("RUN_MODE") == "job" {
+		payload := os.Getenv("JOB_PAYLOAD")
+		var req api.ExportRequest
+		if payload != "" {
+			if err := json.Unmarshal([]byte(payload), &req); err != nil {
+				slog.Error("Failed to parse JOB_PAYLOAD", "error", err)
+				os.Exit(1)
+			}
+		} else {
+			req.Query = os.Getenv("JOB_QUERY")
+			req.QueryLocation = os.Getenv("JOB_QUERY_LOCATION")
+			req.Table = os.Getenv("JOB_TABLE")
+			req.Output = os.Getenv("JOB_OUTPUT")
+			req.Filename = os.Getenv("JOB_FILENAME")
+			req.CreateDDL = os.Getenv("JOB_CREATE_DDL")
+			ut := strings.ToLower(os.Getenv("JOB_USE_TIMESTAMP"))
+			req.UseTimestamp = ut == "true" || ut == "1" || ut == "yes"
+			if req.Query == "" || req.QueryLocation == "" {
+				slog.Error("JOB_QUERY or JOB_QUERY_LOCATION is empty")
+				os.Exit(1)
+			}
+		}
+		params := service.ExportParams{
+			Query:         req.Query,
+			Output:        req.Output,
+			Filename:      req.Filename,
+			QueryLocation: req.QueryLocation,
+			UseTimestamp:  req.UseTimestamp,
+			Table:         req.Table,
+			CreateDDL:     req.CreateDDL,
+		}
+		res, err := driver.Execute(ctx, bqService, params)
+		if err != nil {
+			slog.Error("Job execution failed", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("Job execution completed", "gcs_path", res.GCSPath, "table", res.Table, "rows", res.Rows)
+		return
 	}
 
 	// Initialize Gin
