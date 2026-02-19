@@ -79,6 +79,7 @@ services:
         echo "aws_s3_endpoint = http://minio:9000" >> /opt/starrocks/fe/conf/fe.conf
         echo "aws_s3_access_key = AAAAAAAAAAAAAAAAAAAA" >> /opt/starrocks/fe/conf/fe.conf
         echo "aws_s3_secret_key = BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB" >> /opt/starrocks/fe/conf/fe.conf
+        echo "tablet_create_timeout_second = 30" >> /opt/starrocks/fe/conf/fe.conf
 
         /opt/starrocks/fe/bin/start_fe.sh --host_type FQDN
     ports:
