@@ -86,6 +86,8 @@ services:
       - 8030:8030
       - 9020:9020
       - 9030:9030
+    volumes:
+      - starrocks-fe-meta:/opt/starrocks/fe/meta
     healthcheck:
       test: 'mysql -u root -h starrocks-fe -P 9030 -e "show frontends\G" |grep "Alive: true"'
       interval: 10s
@@ -124,3 +126,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+
+volumes:
+  starrocks-fe-meta:
