@@ -10,11 +10,9 @@ services:
       RUN_MODE: service
 
       EXPORT_DRIVER: STARROCKS
-      STARROCKS_HOST: starrocks
+      STARROCKS_HOST: starrocks-fe
       STARROCKS_PORT: 9030
       STARROCKS_USER: root
-      STARROCKS_PASSWORD: 
-      STARROCKS_DB: analytics
       STARROCKS_HTTP_PORT: 8030
       STARROCKS_BATCH_SIZE: 1000
     volumes:
@@ -22,6 +20,9 @@ services:
     ports:
       - "8080:8080"
     restart: unless-stopped
+    depends_on:
+      starrocks-fe:
+        condition: service_healthy
 
   minio:
     container_name: minio
