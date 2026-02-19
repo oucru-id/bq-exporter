@@ -31,11 +31,16 @@ func NewStarRocksServiceFromEnv() (*StarRocksService, error) {
 	pass := os.Getenv("STARROCKS_PASSWORD")
 	dbname := os.Getenv("STARROCKS_DB")
 
-	if host == "" || port == "" || user == "" || dbname == "" {
-		return nil, fmt.Errorf("missing StarRocks env: require STARROCKS_HOST, STARROCKS_PORT, STARROCKS_USER, STARROCKS_DB")
+	if host == "" || port == "" || user == "" {
+		return nil, fmt.Errorf("missing StarRocks env: require STARROCKS_HOST, STARROCKS_PORT, STARROCKS_USER")
 	}
 
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local", user, pass, host, port, dbname)
+	var dsn string
+	if dbname != "" {
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local", user, pass, host, port, dbname)
+	} else {
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/?charset=utf8mb4&parseTime=true&loc=Local", user, pass, host, port)
+	}
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, err
@@ -96,7 +101,10 @@ func (s *StarRocksService) ensureTable(ctx context.Context, schema bigquery.Sche
 
 	db, tbl := s.parseDBTable(table)
 
-	// If user provided explicit DDL, execute it
+	if err := s.ensureDatabase(ctx, db); err != nil {
+		return err
+	}
+
 	if strings.TrimSpace(createDDL) != "" {
 		slog.InfoContext(ctx, "Applying user-provided StarRocks DDL")
 		if _, err := s.db.ExecContext(ctx, createDDL); err != nil {
@@ -146,6 +154,13 @@ func (s *StarRocksService) ensureTable(ctx context.Context, schema bigquery.Sche
 	return s.evolveSchema(ctx, db, tbl, schema)
 }
 
+func (s *StarRocksService) ensureDatabase(ctx context.Context, db string) error {
+	if strings.TrimSpace(db) == "" {
+		return fmt.Errorf("database is empty")
+	}
+	_, err := s.db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", db))
+	return err
+}
 func (s *StarRocksService) tableExists(ctx context.Context, db, tbl string) (bool, error) {
 	const q = `SELECT 1 FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1`
 	var one int

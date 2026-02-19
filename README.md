@@ -70,10 +70,41 @@ Request Body:
   - Response includes `gcs_path`.
 - StarRocks:
   - `table` optional; defaults to `export`.
+  - `database` optional; overrides the default `STARROCKS_DB` for this request. If set, the service ensures the database exists (creates if missing).
   - `create_ddl` optional; if provided, will be executed to create the table (e.g., full CREATE TABLE ... statement). If not provided, the service infers schema from the BigQuery result and:
     - Creates the table if missing using a default DUPLICATE KEY model (first column) and HASH distribution (8 buckets)
     - Performs automatic schema evolution by adding missing columns when the query returns new fields
   - Response includes `starrocks_table` and `rows_loaded`.
+
+### Curl Examples with Docker Compose Defaults
+
+When running via `docker compose up`, the service listens on `localhost:8080`, requires the header `X-API-Key: apikey`, and defaults to `EXPORT_DRIVER=GCS_PARQUET`.
+
+- StarRocks (switch driver to STARROCKS first: set `EXPORT_DRIVER=STARROCKS` in compose or env). You can omit `STARROCKS_DB` and specify `database` in the request:
+
+```bash
+curl -X POST http://localhost:8080/api/export \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "SELECT id, name FROM dataset.table",
+    "query_location": "US",
+    "table": "users"
+  }'
+```
+
+Explicit DDL (optional):
+
+```bash
+curl -X POST http://localhost:8080/api/export \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "SELECT id, name FROM dataset.table",
+    "query_location": "US",
+    "table": "users",
+    "database": "analytics",
+    "create_ddl": "CREATE TABLE IF NOT EXISTS analytics.users (id BIGINT, name VARCHAR(256)) ENGINE=OLAP DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 8 PROPERTIES (\"replication_num\" = \"1\")"
+  }'
+```
 
 ## Docker Compose
 
@@ -143,7 +174,7 @@ gcloud run jobs create bq-exporter-job \
 ```bash
 gcloud run jobs update bq-exporter-job \
   --region us-central1 \
-  --set-env-vars JOB_PAYLOAD='{"query":"SELECT id FROM dataset.table","query_location":"US","table":"users"}'
+  --set-env-vars JOB_PAYLOAD='{"query":"SELECT id FROM dataset.table","query_location":"US","table":"users","database":"analytics"}'
 ```
 
 3. Run on demand or schedule via Cloud Scheduler using the Jobs API (e.g., Cloud Workflows or Cloud Functions as an orchestrator).
@@ -169,6 +200,7 @@ Cloud Scheduler can call the Cloud Run Admin API to run the job on schedule.
           { "name": "JOB_QUERY", "value": "SELECT id FROM dataset.table" },
           { "name": "JOB_QUERY_LOCATION", "value": "US" },
           { "name": "JOB_TABLE", "value": "users" },
+          { "name": "JOB_DATABASE", "value": "analytics" },
           { "name": "JOB_OUTPUT", "value": "gs://my-bucket/exports/" },
           { "name": "JOB_FILENAME", "value": "daily" },
           { "name": "JOB_USE_TIMESTAMP", "value": "true" },
@@ -224,3 +256,71 @@ To trigger this service on a schedule (e.g., every hour):
 6. **Auth Header**: Add OIDC Token (select your service account).
 
 The application automatically logs `X-CloudScheduler-JobName` and `X-CloudScheduler-ScheduleTime` headers to help you trace execution in Cloud Logging.
+
+## StarRocks SQL (Docker)
+
+- Ensure the stack is running:
+
+```bash
+docker compose up --detach --wait --wait-timeout 120
+```
+
+- Open the MySQL-compatible CLI inside the FE container:
+
+```bash
+docker compose exec starrocks-fe mysql -uroot -h starrocks-fe -P9030
+```
+
+- Example queries:
+
+```sql
+SHOW STORAGE VOLUMES;
+SHOW COMPUTE NODES;
+CREATE DATABASE IF NOT EXISTS analytics;
+SHOW DATABASES;
+```
+
+- Notes:
+  - The default storage volume is auto-created and set via FE config in `docker-compose.yml` (shared-data mode pointing at MinIO).
+  - Databases and tables are not auto-created. Create them via SQL, or let the exporter create tables on first load when using the `STARROCKS` driver.
+
+### Create Table and Insert Data
+
+- Create a simple OLAP table (Duplicate Key model) and insert rows:
+
+```sql
+CREATE TABLE IF NOT EXISTS analytics.users (
+  id BIGINT,
+  name VARCHAR(256),
+  created_at DATETIME
+) ENGINE=OLAP
+DUPLICATE KEY(id)
+DISTRIBUTED BY HASH(id) BUCKETS 8
+PROPERTIES ("replication_num" = "1");
+
+INSERT INTO analytics.users (id, name, created_at) VALUES
+  (1, 'Alice', '2026-02-19 09:00:00'),
+  (2, 'Bob',   '2026-02-19 09:05:00');
+
+SELECT * FROM analytics.users ORDER BY id;
+SELECT COUNT(*) FROM analytics.users;
+```
+
+- Tip: You can run the above directly via:
+
+```bash
+docker compose exec -T starrocks-fe mysql -uroot -h starrocks-fe -P9030 -e "
+CREATE TABLE IF NOT EXISTS analytics.users (
+  id BIGINT,
+  name VARCHAR(256),
+  created_at DATETIME
+) ENGINE=OLAP
+DUPLICATE KEY(id)
+DISTRIBUTED BY HASH(id) BUCKETS 8
+PROPERTIES (\"replication_num\" = \"1\");
+INSERT INTO analytics.users (id, name, created_at) VALUES
+  (1, 'Alice', '2026-02-19 09:00:00'),
+  (2, 'Bob',   '2026-02-19 09:05:00');
+SELECT COUNT(*) FROM analytics.users;
+SELECT * FROM analytics.users ORDER BY id;"
+```

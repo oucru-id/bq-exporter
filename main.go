@@ -83,6 +83,7 @@ func main() {
 			req.Query = os.Getenv("JOB_QUERY")
 			req.QueryLocation = os.Getenv("JOB_QUERY_LOCATION")
 			req.Table = os.Getenv("JOB_TABLE")
+			req.Database = os.Getenv("JOB_DATABASE")
 			req.Output = os.Getenv("JOB_OUTPUT")
 			req.Filename = os.Getenv("JOB_FILENAME")
 			req.CreateDDL = os.Getenv("JOB_CREATE_DDL")
@@ -100,6 +101,7 @@ func main() {
 			QueryLocation: req.QueryLocation,
 			UseTimestamp:  req.UseTimestamp,
 			Table:         req.Table,
+			Database:      req.Database,
 			CreateDDL:     req.CreateDDL,
 		}
 		res, err := driver.Execute(ctx, bqService, params)
