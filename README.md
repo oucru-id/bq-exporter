@@ -170,12 +170,20 @@ gcloud run jobs create bq-exporter-job \
   --set-env-vars RUN_MODE=job
 ```
 
-2. Provide the request payload via JOB_PAYLOAD env var (JSON for the same request body):
+2. Provide per-run overrides via environment variables:
 
 ```bash
 gcloud run jobs update bq-exporter-job \
   --region us-central1 \
-  --set-env-vars JOB_PAYLOAD='{"query":"SELECT id FROM dataset.table","query_location":"US","table":"users","database":"analytics"}'
+  --set-env-vars \
+    JOB_QUERY="SELECT id FROM dataset.table",\
+    JOB_QUERY_LOCATION="US",\
+    JOB_TABLE="users",\
+    JOB_DATABASE="analytics",\
+    JOB_OUTPUT="",\
+    JOB_FILENAME="",\
+    JOB_USE_TIMESTAMP="false",\
+    JOB_CREATE_DDL=""
 ```
 
 3. Run on demand or schedule via Cloud Scheduler using the Jobs API (e.g., Cloud Workflows or Cloud Functions as an orchestrator).
@@ -192,7 +200,6 @@ Cloud Scheduler can call the Cloud Run Admin API to run the job on schedule.
   - Use OAuth Token with scope `https://www.googleapis.com/auth/cloud-platform`
   - Grant the Scheduler’s service account `roles/run.jobRunner` (or `roles/run.admin`)
 - Body:
-  - Pre-set envs: `{}` if `JOB_PAYLOAD` is already configured on the job
   - Per-run override (human-friendly envs):
     ```json
     {

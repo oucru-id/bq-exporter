@@ -4,12 +4,11 @@ import (
 	"bq-exporter/api"
 	"bq-exporter/service"
 	"context"
-	"encoding/json"
-	"strings"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -72,27 +71,19 @@ func main() {
 
 	// Job mode: execute once and exit (for Cloud Run Jobs)
 	if os.Getenv("RUN_MODE") == "job" {
-		payload := os.Getenv("JOB_PAYLOAD")
-		var req api.ExportRequest
-		if payload != "" {
-			if err := json.Unmarshal([]byte(payload), &req); err != nil {
-				slog.Error("Failed to parse JOB_PAYLOAD", "error", err)
-				os.Exit(1)
-			}
-		} else {
-			req.Query = os.Getenv("JOB_QUERY")
-			req.QueryLocation = os.Getenv("JOB_QUERY_LOCATION")
-			req.Table = os.Getenv("JOB_TABLE")
-			req.Database = os.Getenv("JOB_DATABASE")
-			req.Output = os.Getenv("JOB_OUTPUT")
-			req.Filename = os.Getenv("JOB_FILENAME")
-			req.CreateDDL = os.Getenv("JOB_CREATE_DDL")
-			ut := strings.ToLower(os.Getenv("JOB_USE_TIMESTAMP"))
-			req.UseTimestamp = ut == "true" || ut == "1" || ut == "yes"
-			if req.Query == "" || req.QueryLocation == "" {
-				slog.Error("JOB_QUERY or JOB_QUERY_LOCATION is empty")
-				os.Exit(1)
-			}
+		req := api.ExportRequest{}
+		req.Query = os.Getenv("JOB_QUERY")
+		req.QueryLocation = os.Getenv("JOB_QUERY_LOCATION")
+		req.Table = os.Getenv("JOB_TABLE")
+		req.Database = os.Getenv("JOB_DATABASE")
+		req.Output = os.Getenv("JOB_OUTPUT")
+		req.Filename = os.Getenv("JOB_FILENAME")
+		req.CreateDDL = os.Getenv("JOB_CREATE_DDL")
+		ut := strings.ToLower(os.Getenv("JOB_USE_TIMESTAMP"))
+		req.UseTimestamp = ut == "true" || ut == "1" || ut == "yes"
+		if req.Query == "" || req.QueryLocation == "" {
+			slog.Error("JOB_QUERY or JOB_QUERY_LOCATION is empty")
+			os.Exit(1)
 		}
 		params := service.ExportParams{
 			Query:         req.Query,
