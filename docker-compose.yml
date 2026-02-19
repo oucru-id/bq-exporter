@@ -107,6 +107,7 @@ services:
         ulimit -u 65535;
         ulimit -n 65535;
         mysql --connect-timeout 2 -h starrocks-fe -P9030 -uroot -e "ALTER SYSTEM ADD COMPUTE NODE \"starrocks-cn:9050\";"
+        mysql --connect-timeout 2 -h starrocks-fe -P9030 -uroot -e "CREATE DATABASE IF NOT EXISTS analytics;";
         /opt/starrocks/cn/bin/start_cn.sh
     environment:
       - HOST_TYPE=FQDN
@@ -127,5 +128,47 @@ services:
       timeout: 5s
       retries: 3
 
+  superset-postgres:
+    image: postgres:18-alpine
+    container_name: superset-postgres
+    environment:
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: superset
+      POSTGRES_DB: superset
+    volumes:
+      - superset-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superset"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  superset:
+    build:
+      context: /Users/administrator/Documents/Office/superset/docker
+    container_name: superset
+    depends_on:
+      superset-postgres:
+        condition: service_healthy
+      starrocks-fe:
+        condition: service_healthy
+    ports:
+      - "8088:8088"
+    environment:
+      SUPERSET_SECRET_KEY: "replace_with_secure_key"
+      SUPERSET_LOAD_EXAMPLES: "no"
+      SQLALCHEMY_DATABASE_URI: "postgresql://superset:superset@superset-postgres:5432/superset"
+      ADMIN_USERNAME: "admin"
+      ADMIN_PASSWORD: "admin"
+      ADMIN_EMAIL: "admin@superset.com"
+      STARROCKS_URI: "starrocks://root:@starrocks-fe:9030/default_catalog.analytics"
+      STARROCKS_DB_NAME: "StarRocks-analytics"
+    volumes:
+      - /Users/administrator/Documents/Office/superset/data:/data:ro
+    restart: unless-stopped
+    command: /app/start_superset.sh
+
 volumes:
   starrocks-fe-meta:
+  superset-pgdata:
