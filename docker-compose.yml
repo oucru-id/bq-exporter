@@ -194,7 +194,7 @@ services:
       JAVA_TOOL_OPTIONS: "-Xms512m -Xmx2g"
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcs-sa.json
       METABASE_ADMIN_EMAIL: admin@metabase.local
-      METABASE_ADMIN_PASSWORD: admin123
+      METABASE_ADMIN_PASSWORD: 7CKrGji6tGqMJaxcBrn8
       STARROCKS_HOST: starrocks-fe
       STARROCKS_PORT: 9030
       STARROCKS_CATALOG: default_catalog
