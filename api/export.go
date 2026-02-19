@@ -15,6 +15,7 @@ type ExportRequest struct {
 	QueryLocation string `json:"query_location" binding:"required"`
 	UseTimestamp  bool   `json:"use_timestamp"`
 	Table         string `json:"table"`
+	CreateDDL     string `json:"create_ddl"`
 }
 
 type ExportResponse struct {
@@ -48,6 +49,7 @@ func ExportHandler(bqService *service.BigQueryService, driver service.ExportDriv
 			QueryLocation: req.QueryLocation,
 			UseTimestamp:  req.UseTimestamp,
 			Table:         req.Table,
+			CreateDDL:     req.CreateDDL,
 		}
 		res, err := driver.Execute(c.Request.Context(), bqService, params)
 		if err != nil {

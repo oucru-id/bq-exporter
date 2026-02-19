@@ -70,6 +70,9 @@ Request Body:
   - Response includes `gcs_path`.
 - StarRocks:
   - `table` optional; defaults to `export`.
+  - `create_ddl` optional; if provided, will be executed to create the table (e.g., full CREATE TABLE ... statement). If not provided, the service infers schema from the BigQuery result and:
+    - Creates the table if missing using a default DUPLICATE KEY model (first column) and HASH distribution (8 buckets)
+    - Performs automatic schema evolution by adding missing columns when the query returns new fields
   - Response includes `starrocks_table` and `rows_loaded`.
 
 ## Docker Compose

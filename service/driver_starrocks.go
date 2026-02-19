@@ -17,7 +17,7 @@ func (d *StarRocksDriver) Execute(ctx context.Context, bq *BigQueryService, para
 	if table == "" {
 		table = "export"
 	}
-	rows, err := d.sr.LoadFromBigQuery(ctx, bq, params.Query, params.QueryLocation, table)
+	rows, err := d.sr.LoadFromBigQuery(ctx, bq, params.Query, params.QueryLocation, table, params.CreateDDL)
 	if err != nil {
 		return ExportResult{}, err
 	}

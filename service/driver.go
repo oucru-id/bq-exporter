@@ -9,6 +9,7 @@ type ExportParams struct {
 	QueryLocation string
 	UseTimestamp  bool
 	Table         string
+	CreateDDL     string
 }
 
 type ExportResult struct {

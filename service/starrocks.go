@@ -65,9 +65,9 @@ func (s *StarRocksService) Close() error {
 	return nil
 }
 
-// LoadFromBigQuery executes the SQL on BigQuery, creates the StarRocks table if it doesn't exist,
-// and inserts all rows.
-func (s *StarRocksService) LoadFromBigQuery(ctx context.Context, bq *BigQueryService, sqlQuery, location, table string) (int64, error) {
+// LoadFromBigQuery executes the SQL on BigQuery, ensures the StarRocks table exists (with optional
+// custom DDL or automatic schema evolution), and inserts all rows.
+func (s *StarRocksService) LoadFromBigQuery(ctx context.Context, bq *BigQueryService, sqlQuery, location, table, createDDL string) (int64, error) {
 	// Run query
 	q := bq.client.Query(sqlQuery)
 	q.Location = location
@@ -76,8 +76,8 @@ func (s *StarRocksService) LoadFromBigQuery(ctx context.Context, bq *BigQuerySer
 		return 0, fmt.Errorf("failed to execute query on BigQuery: %w", err)
 	}
 
-	// Create table if not exists
-	if err := s.ensureTable(ctx, it.Schema, table); err != nil {
+	// Ensure table exists (create or evolve)
+	if err := s.ensureTable(ctx, it.Schema, table, createDDL); err != nil {
 		return 0, fmt.Errorf("failed to ensure StarRocks table: %w", err)
 	}
 
@@ -89,42 +89,146 @@ func (s *StarRocksService) LoadFromBigQuery(ctx context.Context, bq *BigQuerySer
 	return rowsInserted, nil
 }
 
-func (s *StarRocksService) ensureTable(ctx context.Context, schema bigquery.Schema, table string) error {
+func (s *StarRocksService) ensureTable(ctx context.Context, schema bigquery.Schema, table, createDDL string) error {
 	if table == "" {
-		return fmt.Errorf("STARROCKS_TABLE is empty")
+		return fmt.Errorf("table name is empty")
 	}
 
-	// Basic duplicate-key model using first column as key
-	if len(schema) == 0 {
-		return fmt.Errorf("empty BigQuery schema")
+	db, tbl := s.parseDBTable(table)
+
+	// If user provided explicit DDL, execute it
+	if strings.TrimSpace(createDDL) != "" {
+		slog.InfoContext(ctx, "Applying user-provided StarRocks DDL")
+		if _, err := s.db.ExecContext(ctx, createDDL); err != nil {
+			return fmt.Errorf("failed to execute provided DDL: %w", err)
+		}
+		return nil
 	}
 
-	var cols []string
+	exists, err := s.tableExists(ctx, db, tbl)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		// Basic duplicate-key model using first column as key
+		if len(schema) == 0 {
+			return fmt.Errorf("empty BigQuery schema")
+		}
+		var cols []string
+		for _, f := range schema {
+			if f.Repeated || f.Type == bigquery.RecordFieldType {
+				return fmt.Errorf("unsupported complex type for column %q", f.Name)
+			}
+			cols = append(cols, fmt.Sprintf("`%s` %s", f.Name, mapSRType(f)))
+		}
+		colDDL := strings.Join(cols, ", ")
+		dupKey := fmt.Sprintf("`%s`", schema[0].Name)
+		fullName := s.qualify(db, tbl)
+		ddl := fmt.Sprintf(`
+			CREATE TABLE IF NOT EXISTS %s (
+				%s
+			)
+			ENGINE=OLAP
+			DUPLICATE KEY (%s)
+			DISTRIBUTED BY HASH(%s) BUCKETS 8
+			PROPERTIES (
+				"replication_num" = "1"
+			)`, fullName, colDDL, dupKey, dupKey)
+
+		slog.InfoContext(ctx, "Creating StarRocks table", "table", fullName)
+		if _, err := s.db.ExecContext(ctx, ddl); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// Evolve schema: add missing columns
+	return s.evolveSchema(ctx, db, tbl, schema)
+}
+
+func (s *StarRocksService) tableExists(ctx context.Context, db, tbl string) (bool, error) {
+	const q = `SELECT 1 FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1`
+	var one int
+	err := s.db.QueryRowContext(ctx, q, db, tbl).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *StarRocksService) evolveSchema(ctx context.Context, db, tbl string, schema bigquery.Schema) error {
+	cur, err := s.getExistingColumns(ctx, db, tbl)
+	if err != nil {
+		return err
+	}
+	existing := make(map[string]string, len(cur))
+	for _, c := range cur {
+		existing[c.Name] = strings.ToUpper(c.Type)
+	}
+
+	fullName := s.qualify(db, tbl)
 	for _, f := range schema {
 		if f.Repeated || f.Type == bigquery.RecordFieldType {
 			return fmt.Errorf("unsupported complex type for column %q", f.Name)
 		}
-		cols = append(cols, fmt.Sprintf("`%s` %s", f.Name, mapSRType(f)))
-	}
-	colDDL := strings.Join(cols, ", ")
-	dupKey := fmt.Sprintf("`%s`", schema[0].Name)
-
-	ddl := fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			%s
-		)
-		ENGINE=OLAP
-		DUPLICATE KEY (%s)
-		DISTRIBUTED BY HASH(%s) BUCKETS 8
-		PROPERTIES (
-			"replication_num" = "1"
-		)`, table, colDDL, dupKey, dupKey)
-
-	slog.InfoContext(ctx, "Ensuring StarRocks table", "table", table)
-	if _, err := s.db.ExecContext(ctx, ddl); err != nil {
-		return err
+		if _, ok := existing[f.Name]; !ok {
+			colType := mapSRType(f)
+			ddl := fmt.Sprintf("ALTER TABLE %s ADD COLUMN `%s` %s", fullName, f.Name, colType)
+			slog.InfoContext(ctx, "Adding missing StarRocks column", "table", fullName, "column", f.Name, "type", colType)
+			if _, err := s.db.ExecContext(ctx, ddl); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+type srColumn struct {
+	Name string
+	Type string
+}
+
+func (s *StarRocksService) getExistingColumns(ctx context.Context, db, tbl string) ([]srColumn, error) {
+	const q = `
+		SELECT column_name, data_type
+		FROM information_schema.columns
+		WHERE table_schema = ? AND table_name = ?
+		ORDER BY ordinal_position
+	`
+	rows, err := s.db.QueryContext(ctx, q, db, tbl)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []srColumn
+	for rows.Next() {
+		var c srColumn
+		if err := rows.Scan(&c.Name, &c.Type); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *StarRocksService) parseDBTable(table string) (string, string) {
+	if strings.Contains(table, ".") {
+		parts := strings.SplitN(table, ".", 2)
+		db := parts[0]
+		tbl := parts[1]
+		if db == "" {
+			db = s.dbname
+		}
+		return db, tbl
+	}
+	return s.dbname, table
+}
+
+func (s *StarRocksService) qualify(db, tbl string) string {
+	return fmt.Sprintf("%s.%s", db, tbl)
 }
 
 func (s *StarRocksService) insertRows(ctx context.Context, it *bigquery.RowIterator, schema bigquery.Schema, table string) (int64, error) {
