@@ -131,12 +131,14 @@ services:
       retries: 3
 
   superset-postgres:
-    image: postgres:18-alpine
+    build:
+      context: /Users/administrator/Documents/Labs/metabase
+      dockerfile: postgres.dockerfile
     container_name: superset-postgres
     environment:
       POSTGRES_USER: superset
       POSTGRES_PASSWORD: superset
-      POSTGRES_DB: superset
+      POSTGRES_MULTIPLE_DATABASES: metabase,superset,ducklake_analytics
     volumes:
       - superset-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -166,10 +168,44 @@ services:
       ADMIN_EMAIL: "admin@superset.com"
       STARROCKS_URI: "starrocks://root:@starrocks-fe:9030/default_catalog.analytics"
       STARROCKS_DB_NAME: "StarRocks-analytics"
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcs-sa.json
     volumes:
       - superset-data:/data:ro
+      - ./sa.json:/secrets/gcs-sa.json:ro
     restart: unless-stopped
     command: /app/start_superset.sh
+
+  metabase:
+    build:
+      context: /Users/administrator/Documents/Labs/metabase
+      dockerfile: metabase.dockerfile
+    container_name: metabase
+    user: root
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase
+      MB_DB_USER: superset
+      MB_DB_PASS: superset
+      MB_DB_HOST: superset-postgres
+      MB_DB_PORT: 5432
+      JAVA_TOOL_OPTIONS: "-Xms512m -Xmx2g"
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcs-sa.json
+      METABASE_ADMIN_EMAIL: admin@metabase.local
+      METABASE_ADMIN_PASSWORD: admin123
+      STARROCKS_HOST: starrocks-fe
+      STARROCKS_PORT: 9030
+      STARROCKS_CATALOG: default_catalog
+      STARROCKS_DATABASE: analytics
+      STARROCKS_USER: root
+      STARROCKS_PASSWORD: ""
+    volumes:
+      - ./sa.json:/secrets/gcs-sa.json:ro
+    depends_on:
+      superset-postgres:
+        condition: service_healthy
 
 volumes:
   starrocks-fe-meta:
