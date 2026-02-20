@@ -32,6 +32,7 @@ The application is configured via environment variables:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PORT` | HTTP Port to listen on | `8080` |
+| `RUN_MODE` | `service` (HTTP) or `job` (one-off) | `service` |
 | `GCP_PROJECT_ID` | Google Cloud Project ID | Detected from creds |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to Service Account JSON key | - |
 | `GIN_MODE` | Gin framework mode (`release` or `debug`) | `release` (if unset) |
@@ -41,9 +42,22 @@ The application is configured via environment variables:
 | `STARROCKS_PORT` | StarRocks MySQL port | `9030` |
 | `STARROCKS_USER` | StarRocks user | - |
 | `STARROCKS_PASSWORD` | StarRocks password | - |
-| `STARROCKS_DB` | Target database | - |
-| `STARROCKS_HTTP_PORT` | StarRocks FE HTTP port | `8030` |
+| `STARROCKS_DB` | Default database used when request omits `database` | - |
+| `STARROCKS_WAREHOUSE` | Session warehouse for StarRocks | `default_warehouse` |
 | `STARROCKS_BATCH_SIZE` | Insert batch size | `1000` |
+
+Job mode environment overrides (only when `RUN_MODE=job`):
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `JOB_QUERY` | SQL to run on BigQuery | - |
+| `JOB_QUERY_LOCATION` | BigQuery job location (e.g., `US`) | - |
+| `JOB_TABLE` | Target table name for StarRocks | - |
+| `JOB_DATABASE` | Target database for StarRocks | - |
+| `JOB_OUTPUT` | GCS output URI/prefix for Parquet | - |
+| `JOB_FILENAME` | Base filename for Parquet exports | - |
+| `JOB_USE_TIMESTAMP` | Append timestamp to filenames (`true`/`false`) | `false` |
+| `JOB_CREATE_DDL` | Optional explicit CREATE TABLE DDL | - |
 
 ## API Usage
 
