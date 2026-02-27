@@ -31,35 +31,50 @@ func NewStarRocksServiceFromEnv() (*StarRocksService, error) {
 	pass := os.Getenv("STARROCKS_PASSWORD")
 	dbname := os.Getenv("STARROCKS_DB")
 
+	slog.Info("Connecting to StarRocks", "host", host, "port", port, "user", user, "dbname", dbname)
+
 	if host == "" || port == "" || user == "" {
 		return nil, fmt.Errorf("missing StarRocks env: require STARROCKS_HOST, STARROCKS_PORT, STARROCKS_USER")
 	}
 
 	var dsn string
+	// Add timeout and StarRocks-specific parameters to prevent hanging
+	// StarRocks uses MySQL protocol but may need specific settings
 	if dbname != "" {
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local&interpolateParams=true", user, pass, host, port, dbname)
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local&interpolateParams=true&timeout=10s&tls=false&allowCleartextPasswords=1", user, pass, host, port, dbname)
 	} else {
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/?charset=utf8mb4&parseTime=true&loc=Local&interpolateParams=true", user, pass, host, port)
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/?charset=utf8mb4&parseTime=true&loc=Local&interpolateParams=true&timeout=10s&tls=false&allowCleartextPasswords=1", user, pass, host, port)
 	}
+	slog.Info("Opening MySQL connection to StarRocks...")
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
+		slog.Error("Failed to open MySQL connection", "error", err)
 		return nil, err
 	}
 	db.SetConnMaxLifetime(30 * time.Minute)
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(5)
 
-	if err := db.Ping(); err != nil {
+	// Use a context with timeout for Ping to prevent hanging forever
+	pingCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	slog.Info("Pinging StarRocks database with timeout...")
+	if err := db.PingContext(pingCtx); err != nil {
+		slog.Error("Failed to ping StarRocks", "error", err)
 		return nil, fmt.Errorf("failed to connect to StarRocks: %w", err)
 	}
+	slog.Info("StarRocks connection established, setting warehouse...")
 
 	wh := os.Getenv("STARROCKS_WAREHOUSE")
 	if strings.TrimSpace(wh) == "" {
 		wh = "default_warehouse"
 	}
+	slog.Info("Setting StarRocks warehouse", "warehouse", wh)
 	if _, err := db.Exec(fmt.Sprintf("SET warehouse = '%s'", wh)); err != nil {
+		slog.Error("Failed to set warehouse", "error", err)
 		return nil, fmt.Errorf("failed to set session warehouse %q: %w", wh, err)
 	}
+	slog.Info("StarRocks service initialized successfully")
 
 	return &StarRocksService{
 		db:       db,

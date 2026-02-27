@@ -45,6 +45,24 @@ func main() {
 		}
 		projectID = creds.ProjectID
 		slog.Info("Detected Project ID", "project_id", projectID)
+
+		// Debug: Log credential source
+		if creds.JSON != nil {
+			slog.Info("Credentials found", "type", "serviceaccount", "json_length", len(creds.JSON))
+		} else {
+			slog.Info("Credentials found", "type", "default")
+		}
+	}
+
+	// Debug: Check if we can reach Google APIs before creating BigQuery client
+	slog.Info("Testing network connectivity to Google APIs...")
+	netTransport := &http.Transport{}
+	netClient := &http.Client{Transport: netTransport, Timeout: 10 * time.Second}
+	_, err := netClient.Get("https://bigquery.googleapis.com/")
+	if err != nil {
+		slog.Error("Cannot reach BigQuery API - network issue detected", "error", err)
+	} else {
+		slog.Info("Network connectivity to BigQuery API OK")
 	}
 
 	// Initialize BigQuery Service

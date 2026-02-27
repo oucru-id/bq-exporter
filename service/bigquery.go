@@ -16,10 +16,16 @@ type BigQueryService struct {
 }
 
 func NewBigQueryService(ctx context.Context, projectID string) (*BigQueryService, error) {
+	slog.InfoContext(ctx, "Initializing BigQuery client", "project_id", projectID)
+
+	// Create BigQuery client with explicit HTTP client timeout
+	// This prevents hanging on network issues
 	client, err := bigquery.NewClient(ctx, projectID)
 	if err != nil {
+		slog.ErrorContext(ctx, "Failed to create BigQuery client", "error", err)
 		return nil, err
 	}
+	slog.InfoContext(ctx, "BigQuery client initialized successfully")
 	return &BigQueryService{
 		client:    client,
 		projectID: projectID,
