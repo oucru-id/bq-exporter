@@ -100,7 +100,7 @@ When running via `docker compose up`, the service listens on `localhost:8080`, r
 curl -X POST http://localhost:8080/api/export \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "SELECT puskesmas_name, file_name FROM syntethic_data.data_ingestion_report LIMIT 10",
+    "query": "SELECT puskesmas_name, file_name FROM test_data.data_ingestion_report LIMIT 10",
     "query_location": "asia-southeast2",
     "table": "data_ingestion_report",
     "database": "syntethic_data"
@@ -113,11 +113,11 @@ Explicit DDL (optional):
 curl -X POST http://localhost:8080/api/export \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "SELECT id, name FROM dataset.table",
-    "query_location": "US",
-    "table": "users",
-    "database": "analytics",
-    "create_ddl": "CREATE TABLE IF NOT EXISTS analytics.users (id BIGINT, name VARCHAR(256)) ENGINE=OLAP DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 8 PROPERTIES (\"replication_num\" = \"1\")"
+    "query": "SELECT puskesmas_name, file_name FROM test_data.data_ingestion_report LIMIT 10",
+    "query_location": "asia-southeast2",
+    "table": "data_ingestion_report",
+    "database": "syntethic_data",
+    "create_ddl": "CREATE TABLE IF NOT EXISTS syntethic_data.data_ingestion_report (puskesmas_name VARCHAR(256), file_name VARCHAR(256)) ENGINE=OLAP"
   }'
 ```
 
